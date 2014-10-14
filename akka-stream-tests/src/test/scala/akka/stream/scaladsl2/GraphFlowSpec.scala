@@ -281,8 +281,8 @@ class GraphFlowSpec extends AkkaSpec {
     "used together" should {
       "materialize properly" in {
         val probe = StreamTestKit.SubscriberProbe[Int]()
-        val inSource = SubscriberTap[Int]
-        val outSink = PublisherDrain[Int]
+        val inSource = Source.subscriber[Int]
+        val outSink = Sink.publisher[Int]
 
         val flow = Flow(partialGraph) { implicit b ⇒
           import FlowGraphImplicits._
@@ -312,9 +312,9 @@ class GraphFlowSpec extends AkkaSpec {
           source ~> Flow[String].map(_.toInt) ~> flow ~> Flow[Int].map(_.toString) ~> sink
         }.run()
 
-        val subscriber = mm.materializedTap(inSource)
-        val publisher = mm.materializedDrain(outSink)
-        tap1.runWith(PublisherDrain()).subscribe(subscriber)
+        val subscriber = mm.get(inSource)
+        val publisher = mm.get(outSink)
+        tap1.runWith(Sink.publisher).subscribe(subscriber)
         publisher.subscribe(probe)
 
         validateProbe(probe, stdRequests, stdResult)

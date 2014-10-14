@@ -17,7 +17,7 @@ import java.util.concurrent.atomic.AtomicReference
 
 /**
  * This trait is a marker for a pluggable stream drain. Concrete instances should
- * implement [[DrainWithKey]] or [[SimpleDrain]], otherwise a custom [[FlowMaterializer]]
+ * implement [[KeyedDrain]] or [[SimpleDrain]], otherwise a custom [[FlowMaterializer]]
  * will have to be used to be able to attach them.
  *
  * All Drains defined in this package rely upon an [[akka.stream.impl2.ActorBasedFlowMaterializer]] being
@@ -30,7 +30,7 @@ trait Drain[-In] extends Sink[In]
 /**
  * A drain that does not need to create a user-accessible object during materialization.
  */
-trait SimpleDrain[-In] extends Drain[In] {
+trait SimpleDrain[-In] extends Drain[In] with SimpleSink[In] {
   /**
    * Attach this drain to the given [[org.reactivestreams.Publisher]]. Using the given
    * [[FlowMaterializer]] is completely optional, especially if this drain belongs to
@@ -64,9 +64,9 @@ trait SimpleDrain[-In] extends Drain[In] {
  * to retrieve in order to access aspects of this drain (could be a completion Future
  * or a cancellation handle, etc.)
  */
-trait DrainWithKey[-In] extends Drain[In] {
+trait KeyedDrain[-In] extends Drain[In] with KeyedSink[In] {
 
-  type MaterializedType
+  override type MaterializedType
 
   /**
    * Attach this drain to the given [[org.reactivestreams.Publisher]]. Using the given
@@ -106,14 +106,14 @@ trait DrainWithKey[-In] extends Drain[In] {
  * elements to fill the internal buffers it will assert back-pressure until
  * a subscriber connects and creates demand for elements to be emitted.
  */
-object PublisherDrain {
+private[scaladsl2] object PublisherDrain {
   private val instance = new PublisherDrain[Nothing]
   def apply[T](): PublisherDrain[T] = instance.asInstanceOf[PublisherDrain[T]]
   def withFanout[T](initialBufferSize: Int, maximumBufferSize: Int): FanoutPublisherDrain[T] =
     new FanoutPublisherDrain[T](initialBufferSize, maximumBufferSize)
 }
 
-class PublisherDrain[In] extends DrainWithKey[In] {
+private[scaladsl2] class PublisherDrain[In] extends KeyedDrain[In] {
   type MaterializedType = Publisher[In]
 
   def attach(flowPublisher: Publisher[In], materializer: ActorBasedFlowMaterializer, flowName: String): Publisher[In] = flowPublisher
@@ -121,7 +121,7 @@ class PublisherDrain[In] extends DrainWithKey[In] {
   override def toString: String = "PublisherDrain"
 }
 
-final case class FanoutPublisherDrain[In](initialBufferSize: Int, maximumBufferSize: Int) extends DrainWithKey[In] {
+private[scaladsl2] final case class FanoutPublisherDrain[In](initialBufferSize: Int, maximumBufferSize: Int) extends KeyedDrain[In] {
   type MaterializedType = Publisher[In]
 
   override def attach(flowPublisher: Publisher[In], materializer: ActorBasedFlowMaterializer, flowName: String): Publisher[In] = {
@@ -133,7 +133,7 @@ final case class FanoutPublisherDrain[In](initialBufferSize: Int, maximumBufferS
   }
 }
 
-object FutureDrain {
+private[scaladsl2] object FutureDrain {
   def apply[T](): FutureDrain[T] = new FutureDrain[T]
 }
 
@@ -144,7 +144,7 @@ object FutureDrain {
  * the Future into the corresponding failed state) or the end-of-stream
  * (failing the Future with a NoSuchElementException).
  */
-class FutureDrain[In] extends DrainWithKey[In] {
+private[scaladsl2] class FutureDrain[In] extends KeyedDrain[In] {
 
   type MaterializedType = Future[In]
 
@@ -175,7 +175,7 @@ class FutureDrain[In] extends DrainWithKey[In] {
  * Attaches a subscriber to this stream which will just discard all received
  * elements.
  */
-final case object BlackholeDrain extends SimpleDrain[Any] {
+private[scaladsl2] final case object BlackholeDrain extends SimpleDrain[Any] {
   override def attach(flowPublisher: Publisher[Any], materializer: ActorBasedFlowMaterializer, flowName: String): Unit =
     flowPublisher.subscribe(create(materializer, flowName))
   override def isActive: Boolean = true
@@ -186,14 +186,14 @@ final case object BlackholeDrain extends SimpleDrain[Any] {
 /**
  * Attaches a subscriber to this stream.
  */
-final case class SubscriberDrain[In](subscriber: Subscriber[In]) extends SimpleDrain[In] {
+private[scaladsl2] final case class SubscriberDrain[In](subscriber: Subscriber[In]) extends SimpleDrain[In] {
   override def attach(flowPublisher: Publisher[In], materializer: ActorBasedFlowMaterializer, flowName: String): Unit =
     flowPublisher.subscribe(subscriber)
   override def isActive: Boolean = true
   override def create(materializer: ActorBasedFlowMaterializer, flowName: String): Subscriber[In] = subscriber
 }
 
-object OnCompleteDrain {
+private[scaladsl2] object OnCompleteDrain {
   private val SuccessUnit = Success[Unit](())
 }
 
@@ -202,7 +202,7 @@ object OnCompleteDrain {
  * completion, apply the provided function with [[scala.util.Success]]
  * or [[scala.util.Failure]].
  */
-final case class OnCompleteDrain[In](callback: Try[Unit] ⇒ Unit) extends SimpleDrain[In] {
+private[scaladsl2] final case class OnCompleteDrain[In](callback: Try[Unit] ⇒ Unit) extends SimpleDrain[In] {
 
   override def attach(flowPublisher: Publisher[In], materializer: ActorBasedFlowMaterializer, flowName: String): Unit =
     Source(flowPublisher).transform("onCompleteDrain", () ⇒ new Transformer[In, Unit] {
@@ -223,7 +223,7 @@ final case class OnCompleteDrain[In](callback: Try[Unit] ⇒ Unit) extends Simpl
  * that will be completed with `Success` when reaching the normal end of the stream, or completed
  * with `Failure` if there is an error is signaled in the stream.
  */
-final case class ForeachDrain[In](f: In ⇒ Unit) extends DrainWithKey[In] {
+private[scaladsl2] final case class ForeachDrain[In](f: In ⇒ Unit) extends KeyedDrain[In] {
 
   type MaterializedType = Future[Unit]
 
@@ -251,7 +251,7 @@ final case class ForeachDrain[In](f: In ⇒ Unit) extends DrainWithKey[In] {
  * function evaluation when the input stream ends, or completed with `Failure`
  * if there is an error is signaled in the stream.
  */
-final case class FoldDrain[U, In](zero: U)(f: (U, In) ⇒ U) extends DrainWithKey[In] {
+private[scaladsl2] final case class FoldDrain[U, In](zero: U)(f: (U, In) ⇒ U) extends KeyedDrain[In] {
 
   type MaterializedType = Future[U]
 
@@ -278,7 +278,7 @@ final case class FoldDrain[U, In](zero: U)(f: (U, In) ⇒ U) extends DrainWithKe
 /**
  * A drain that immediately cancels its upstream upon materialization.
  */
-final case object CancelDrain extends SimpleDrain[Any] {
+private[scaladsl2] final case object CancelDrain extends SimpleDrain[Any] {
 
   override def attach(flowPublisher: Publisher[Any], materializer: ActorBasedFlowMaterializer, flowName: String): Unit = {
     flowPublisher.subscribe(new Subscriber[Any] {
@@ -289,4 +289,3 @@ final case object CancelDrain extends SimpleDrain[Any] {
     })
   }
 }
-

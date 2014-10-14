@@ -29,7 +29,7 @@ class GraphMergeSpec extends TwoStreamsSetup {
         val m2 = Merge[Int]("m2")
         val m3 = Merge[Int]("m3")
 
-        tap1 ~> m1 ~> Flow[Int].map(_ * 2) ~> m2 ~> Flow[Int].map(_ / 2).map(_ + 1) ~> SubscriberDrain(probe)
+        tap1 ~> m1 ~> Flow[Int].map(_ * 2) ~> m2 ~> Flow[Int].map(_ / 2).map(_ + 1) ~> Sink(probe)
         tap2 ~> m1
         tap3 ~> m2
 
@@ -60,7 +60,7 @@ class GraphMergeSpec extends TwoStreamsSetup {
       FlowGraph { implicit b ⇒
         val merge = Merge[Int]("merge")
 
-        tap1 ~> merge ~> Flow[Int] ~> SubscriberDrain(probe)
+        tap1 ~> merge ~> Flow[Int] ~> Sink(probe)
         tap2 ~> merge
         tap3 ~> merge
         tap4 ~> merge

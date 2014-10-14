@@ -32,11 +32,11 @@ trait Source[+Out] extends FlowOps[Out] {
   def connect(sink: Sink[Out]): RunnableFlow
 
   /**
-   * Connect this `Source` to a `Drain` and run it. The returned value is the materialized value
-   * of the `Drain`, e.g. the `Publisher` of a [[PublisherDrain]].
+   * Connect this `Source` to a `Sink` and run it. The returned value is the materialized value
+   * of the `Sink`, e.g. the `Publisher` of a [[Sink.publisher]].
    */
-  def runWith(drain: DrainWithKey[Out])(implicit materializer: FlowMaterializer): drain.MaterializedType =
-    connect(drain).run().materializedDrain(drain)
+  def runWith(sink: KeyedSink[Out])(implicit materializer: FlowMaterializer): sink.MaterializedType =
+    connect(sink).run().get(sink)
 
   /**
    * Shortcut for running this `Source` with a fold function.
@@ -171,10 +171,30 @@ object Source {
     val out = block(builder)
     builder.partialBuild().toSource(out)
   }
+
   /**
    * Concatenates two sources so that the first element
    * emitted by the second source is emitted after the last element of the first
    * source.
    */
   def concat[T](source1: Source[T], source2: Source[T]): Source[T] = ConcatTap(source1, source2)
+
+  /**
+   * Creates a `Source` that is materialized as a [[org.reactivestreams.Subscriber]]
+   */
+  def subscriber[T] = SubscriberTap[T]
+}
+
+/**
+ * A `Source` that does not need to create a user-accessible object during materialization.
+ */
+trait SimpleSource[+Out] extends Source[Out]
+
+/**
+ * A `Source` that will create an object during materialization that the user will need
+ * to retrieve in order to access aspects of this source (could be a Subscriber, a
+ * Future/Promise, etc.).
+ */
+trait KeyedSource[+Out] extends Source[Out] {
+  type MaterializedType
 }

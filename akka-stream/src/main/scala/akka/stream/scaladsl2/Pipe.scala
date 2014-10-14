@@ -49,8 +49,8 @@ private[stream] final case class SinkPipe[-In](output: Drain[_], ops: List[AstNo
   private[stream] def withTap(in: Tap[In]): RunnablePipe = RunnablePipe(in, output, ops)
 
   private[stream] def prependPipe[T](pipe: Pipe[T, In]): SinkPipe[T] = SinkPipe(output, ops ::: pipe.ops)
-  override def runWith(tap: SimpleTap[In])(implicit materializer: FlowMaterializer): Unit =
-    tap.connect(this).run()
+  override def runWith(source: SimpleSource[In])(implicit materializer: FlowMaterializer): Unit =
+    source.connect(this).run()
 
 }
 
@@ -90,14 +90,14 @@ private[scaladsl2] final case class RunnablePipe(input: Tap[_], output: Drain[_]
 
 /**
  * Returned by [[RunnablePipe#run]] and can be used as parameter to retrieve the materialized
- * `Tap` input or `Drain` output.
+ * `Source` input or `Sink` output.
  */
-private[stream] class MaterializedPipe(tapKey: AnyRef, matTap: Any, drainKey: AnyRef, matDrain: Any) extends MaterializedMap {
-  override def materializedTap(key: TapWithKey[_]): key.MaterializedType =
-    if (key == tapKey) matTap.asInstanceOf[key.MaterializedType]
-    else throw new IllegalArgumentException(s"Tap key [$key] doesn't match the tap [$tapKey] of this flow")
+private[stream] class MaterializedPipe(sourceKey: AnyRef, matSource: Any, sinkKey: AnyRef, matSink: Any) extends MaterializedMap {
+  override def get(key: KeyedSource[_]): key.MaterializedType =
+    if (key == sourceKey) matSource.asInstanceOf[key.MaterializedType]
+    else throw new IllegalArgumentException(s"Source key [$key] doesn't match the source [$sourceKey] of this flow")
 
-  override def materializedDrain(key: DrainWithKey[_]): key.MaterializedType =
-    if (key == drainKey) matDrain.asInstanceOf[key.MaterializedType]
-    else throw new IllegalArgumentException(s"Drain key [$key] doesn't match the drain [$drainKey] of this flow")
+  override def get(key: KeyedSink[_]): key.MaterializedType =
+    if (key == sinkKey) matSink.asInstanceOf[key.MaterializedType]
+    else throw new IllegalArgumentException(s"Sink key [$key] doesn't match the sink [$sinkKey] of this flow")
 }

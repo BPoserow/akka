@@ -18,7 +18,7 @@ import scala.util.Success
 
 /**
  * This trait is a marker for a pluggable stream tap. Concrete instances should
- * implement [[TapWithKey]] or [[SimpleTap]], otherwise a custom [[FlowMaterializer]]
+ * implement [[KeyedTap]] or [[SimpleTap]], otherwise a custom [[FlowMaterializer]]
  * will have to be used to be able to attach them.
  *
  * All Taps defined in this package rely upon an ActorBasedFlowMaterializer being
@@ -42,7 +42,7 @@ trait Tap[+Out] extends Source[Out] {
 /**
  * A tap that does not need to create a user-accessible object during materialization.
  */
-trait SimpleTap[+Out] extends Tap[Out] {
+trait SimpleTap[+Out] extends Tap[Out] with SimpleSource[Out] {
   /**
    * Attach this tap to the given [[org.reactivestreams.Subscriber]]. Using the given
    * [[FlowMaterializer]] is completely optional, especially if this tap belongs to
@@ -80,9 +80,9 @@ trait SimpleTap[+Out] extends Tap[Out] {
  * to retrieve in order to access aspects of this tap (could be a Subscriber, a
  * Future/Promise, etc.).
  */
-trait TapWithKey[+Out] extends Tap[Out] {
+trait KeyedTap[+Out] extends Tap[Out] with KeyedSource[Out] {
 
-  type MaterializedType
+  override type MaterializedType
 
   /**
    * Attach this tap to the given [[org.reactivestreams.Subscriber]]. Using the given
@@ -120,7 +120,7 @@ trait TapWithKey[+Out] extends Tap[Out] {
  * Holds a `Subscriber` representing the input side of the flow.
  * The `Subscriber` can later be connected to an upstream `Publisher`.
  */
-final case class SubscriberTap[Out]() extends TapWithKey[Out] {
+private[scaladsl2] final case class SubscriberTap[Out]() extends KeyedTap[Out] {
   type MaterializedType = Subscriber[Out]
 
   override def attach(flowSubscriber: Subscriber[Out], materializer: ActorBasedFlowMaterializer, flowName: String): Subscriber[Out] =
@@ -134,7 +134,7 @@ final case class SubscriberTap[Out]() extends TapWithKey[Out] {
  * that mediate the flow of elements downstream and the propagation of
  * back-pressure upstream.
  */
-final case class PublisherTap[Out](p: Publisher[Out]) extends SimpleTap[Out] {
+private[scaladsl2] final case class PublisherTap[Out](p: Publisher[Out]) extends SimpleTap[Out] {
   override def attach(flowSubscriber: Subscriber[Out], materializer: ActorBasedFlowMaterializer, flowName: String): Unit =
     p.subscribe(flowSubscriber)
   override def isActive: Boolean = true
@@ -148,7 +148,7 @@ final case class PublisherTap[Out](p: Publisher[Out]) extends SimpleTap[Out] {
  * in accordance with the demand coming from the downstream transformation
  * steps.
  */
-final case class IteratorTap[Out](iterator: Iterator[Out]) extends SimpleTap[Out] {
+private[scaladsl2] final case class IteratorTap[Out](iterator: Iterator[Out]) extends SimpleTap[Out] {
   override def attach(flowSubscriber: Subscriber[Out], materializer: ActorBasedFlowMaterializer, flowName: String): Unit =
     create(materializer, flowName).subscribe(flowSubscriber)
   override def isActive: Boolean = true
@@ -164,7 +164,7 @@ final case class IteratorTap[Out](iterator: Iterator[Out]) extends SimpleTap[Out
  * stream will see an individual flow of elements (always starting from the
  * beginning) regardless of when they subscribed.
  */
-final case class IterableTap[Out](iterable: immutable.Iterable[Out]) extends SimpleTap[Out] {
+private[scaladsl2] final case class IterableTap[Out](iterable: immutable.Iterable[Out]) extends SimpleTap[Out] {
   override def attach(flowSubscriber: Subscriber[Out], materializer: ActorBasedFlowMaterializer, flowName: String): Unit =
     create(materializer, flowName).subscribe(flowSubscriber)
   override def isActive: Boolean = true
@@ -179,7 +179,7 @@ final case class IterableTap[Out](iterable: immutable.Iterable[Out]) extends Sim
  * The stream ends normally when evaluation of the closure returns a `None`.
  * The stream ends exceptionally when an exception is thrown from the closure.
  */
-final case class ThunkTap[Out](f: () ⇒ Option[Out]) extends SimpleTap[Out] {
+private[scaladsl2] final case class ThunkTap[Out](f: () ⇒ Option[Out]) extends SimpleTap[Out] {
   override def attach(flowSubscriber: Subscriber[Out], materializer: ActorBasedFlowMaterializer, flowName: String): Unit =
     create(materializer, flowName).subscribe(flowSubscriber)
   override def isActive: Boolean = true
@@ -197,7 +197,7 @@ final case class ThunkTap[Out](f: () ⇒ Option[Out]) extends SimpleTap[Out] {
  * may happen before or after materializing the `Flow`.
  * The stream terminates with an error if the `Future` is completed with a failure.
  */
-final case class FutureTap[Out](future: Future[Out]) extends SimpleTap[Out] {
+private[scaladsl2] final case class FutureTap[Out](future: Future[Out]) extends SimpleTap[Out] {
   override def attach(flowSubscriber: Subscriber[Out], materializer: ActorBasedFlowMaterializer, flowName: String): Unit =
     create(materializer, flowName).subscribe(flowSubscriber)
   override def isActive: Boolean = true
@@ -221,7 +221,7 @@ final case class FutureTap[Out](future: Future[Out]) extends SimpleTap[Out] {
  * element is produced it will not receive that tick element later. It will
  * receive new tick elements as soon as it has requested more elements.
  */
-final case class TickTap[Out](initialDelay: FiniteDuration, interval: FiniteDuration, tick: () ⇒ Out) extends SimpleTap[Out] {
+private[scaladsl2] final case class TickTap[Out](initialDelay: FiniteDuration, interval: FiniteDuration, tick: () ⇒ Out) extends SimpleTap[Out] {
   override def attach(flowSubscriber: Subscriber[Out], materializer: ActorBasedFlowMaterializer, flowName: String): Unit =
     create(materializer, flowName).subscribe(flowSubscriber)
   override def isActive: Boolean = true
@@ -235,7 +235,7 @@ final case class TickTap[Out](initialDelay: FiniteDuration, interval: FiniteDura
  * completely, then draining the elements arriving from the second Source. If the first Source is infinite then the
  * second Source will be never drained.
  */
-final case class ConcatTap[Out](source1: Source[Out], source2: Source[Out]) extends SimpleTap[Out] {
+private[scaladsl2] final case class ConcatTap[Out](source1: Source[Out], source2: Source[Out]) extends SimpleTap[Out] {
 
   override def attach(flowSubscriber: Subscriber[Out], materializer: ActorBasedFlowMaterializer, flowName: String): Unit = {
     val concatter = Concat[Out]
@@ -243,7 +243,7 @@ final case class ConcatTap[Out](source1: Source[Out], source2: Source[Out]) exte
       builder
         .addEdge(source1, Pipe.empty[Out], concatter.first)
         .addEdge(source2, Pipe.empty[Out], concatter.second)
-        .addEdge(concatter.out, SubscriberDrain(flowSubscriber))
+        .addEdge(concatter.out, Sink(flowSubscriber))
     }.run()(materializer)
   }
 

@@ -140,32 +140,32 @@ case class ActorBasedFlowMaterializer(override val settings: MaterializerSetting
     val flowName = createFlowName()
 
     def attachDrain(pub: Publisher[Out]) = drain match {
-      case s: SimpleDrain[Out]  ⇒ s.attach(pub, this, flowName)
-      case s: DrainWithKey[Out] ⇒ s.attach(pub, this, flowName)
-      case _                    ⇒ throw new MaterializationException("unknown Drain type " + drain.getClass)
-    }
-    def attachTap(sub: Subscriber[In]) = tap match {
-      case s: SimpleTap[In]  ⇒ s.attach(sub, this, flowName)
-      case s: TapWithKey[In] ⇒ s.attach(sub, this, flowName)
-      case _                 ⇒ throw new MaterializationException("unknown Tap type " + drain.getClass)
-    }
-    def createDrain() = drain.asInstanceOf[Drain[In]] match {
-      case s: SimpleDrain[In]  ⇒ s.create(this, flowName) -> (())
-      case s: DrainWithKey[In] ⇒ s.create(this, flowName)
+      case s: SimpleDrain[Out] ⇒ s.attach(pub, this, flowName)
+      case s: KeyedDrain[Out]  ⇒ s.attach(pub, this, flowName)
       case _                   ⇒ throw new MaterializationException("unknown Drain type " + drain.getClass)
     }
+    def attachTap(sub: Subscriber[In]) = tap match {
+      case s: SimpleTap[In] ⇒ s.attach(sub, this, flowName)
+      case s: KeyedTap[In]  ⇒ s.attach(sub, this, flowName)
+      case _                ⇒ throw new MaterializationException("unknown Tap type " + drain.getClass)
+    }
+    def createDrain() = drain.asInstanceOf[Drain[In]] match {
+      case s: SimpleDrain[In] ⇒ s.create(this, flowName) -> (())
+      case s: KeyedDrain[In]  ⇒ s.create(this, flowName)
+      case _                  ⇒ throw new MaterializationException("unknown Drain type " + drain.getClass)
+    }
     def createTap() = tap.asInstanceOf[Tap[Out]] match {
-      case s: SimpleTap[Out]  ⇒ s.create(this, flowName) -> (())
-      case s: TapWithKey[Out] ⇒ s.create(this, flowName)
-      case _                  ⇒ throw new MaterializationException("unknown Tap type " + drain.getClass)
+      case s: SimpleTap[Out] ⇒ s.create(this, flowName) -> (())
+      case s: KeyedTap[Out]  ⇒ s.create(this, flowName)
+      case _                 ⇒ throw new MaterializationException("unknown Tap type " + drain.getClass)
     }
     def isActive(s: AnyRef) = s match {
-      case tap: SimpleTap[_]      ⇒ tap.isActive
-      case tap: TapWithKey[_]     ⇒ tap.isActive
-      case drain: SimpleDrain[_]  ⇒ drain.isActive
-      case drain: DrainWithKey[_] ⇒ drain.isActive
-      case _: Tap[_]              ⇒ throw new MaterializationException("unknown Tap type " + drain.getClass)
-      case _: Drain[_]            ⇒ throw new MaterializationException("unknown Drain type " + drain.getClass)
+      case tap: SimpleTap[_]     ⇒ tap.isActive
+      case tap: KeyedTap[_]      ⇒ tap.isActive
+      case drain: SimpleDrain[_] ⇒ drain.isActive
+      case drain: KeyedDrain[_]  ⇒ drain.isActive
+      case _: Tap[_]             ⇒ throw new MaterializationException("unknown Tap type " + drain.getClass)
+      case _: Drain[_]           ⇒ throw new MaterializationException("unknown Drain type " + drain.getClass)
     }
 
     val (tapValue, drainValue) =
